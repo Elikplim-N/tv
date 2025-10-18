@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect, useTransition, useRef } from 'react';
@@ -43,7 +44,9 @@ export default function Dashboard() {
     const savedData = localStorage.getItem(LOCAL_STORAGE_KEY);
     const dataToProcess = savedData || initialData;
     setRawData(dataToProcess);
-    localStorage.setItem(LOCAL_STORAGE_KEY, dataToProcess);
+    if (!savedData) {
+      localStorage.setItem(LOCAL_STORAGE_KEY, dataToProcess);
+    }
   }, []);
   
   useEffect(() => {
@@ -62,9 +65,11 @@ export default function Dashboard() {
   };
   
   const appendRawData = (newData: string) => {
-      const updatedData = rawData + newData;
-      setRawData(updatedData);
-      localStorage.setItem(LOCAL_STORAGE_KEY, updatedData);
+    setRawData(prevData => {
+        const updatedData = prevData + newData;
+        localStorage.setItem(LOCAL_STORAGE_KEY, updatedData);
+        return updatedData;
+    });
   }
 
   const applyFilters = () => {
@@ -152,14 +157,25 @@ export default function Dashboard() {
             const reader = textDecoder.readable.getReader();
             readerRef.current = reader;
 
+            let lineBuffer = '';
             while (true) {
                 const { value, done } = await reader.read();
                 if (done) {
                     reader.releaseLock();
                     break;
                 }
-                // Append new data, ensuring a newline for the processRawData function
-                appendRawData(value);
+                
+                lineBuffer += value;
+                const lines = lineBuffer.split('\n');
+                
+                // Keep the last partial line in the buffer
+                lineBuffer = lines.pop() || '';
+
+                if (lines.length > 0) {
+                    // Add a newline to the end of the complete lines
+                    const completeLines = lines.join('\n') + '\n';
+                    appendRawData(completeLines);
+                }
             }
 
         } catch (error) {
@@ -278,14 +294,14 @@ export default function Dashboard() {
                             </div>
                         </div>
                         <div className="h-[80px]">
-                             <ChartContainer config={chartConfig} className="h-full w-full">
+                            <ChartContainer config={chartConfig} className="h-full w-full">
                                 <RechartsBarChart layout="vertical" data={severityChartData} margin={{ top: 5, right: 0, left: 0, bottom: 5 }}>
                                     <XAxis type="number" hide />
                                     <YAxis dataKey="name" type="category" hide />
                                     <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
                                     <Bar dataKey="value" layout="vertical" stackId="a" radius={4} />
                                 </RechartsBarChart>
-                             </ChartContainer>
+                            </ChartContainer>
                         </div>
                     </div>
                 ) : <Skeleton className="h-24 w-full" />}
@@ -359,3 +375,5 @@ export default function Dashboard() {
     </div>
   );
 }
+
+    

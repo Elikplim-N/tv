@@ -1,3 +1,4 @@
+
 import { LabeledTrafficData, SummaryStats, TrafficData, ForecastDataPoint } from '@/types';
 import { addDays, format } from 'date-fns';
 
@@ -13,7 +14,7 @@ export function processRawData(text: string): LabeledTrafficData[] {
   for (const line of lines) {
     try {
       if (line.trim() === '') continue;
-      const data: TrafficData = JSON.parse(line);
+      const data: TrafficData = JSON.parse(line.trim());
       const headway_sec = data.headway_ms / 1000;
       let severity: LabeledTrafficData['severity'] = 'Low';
 
@@ -32,7 +33,8 @@ export function processRawData(text: string): LabeledTrafficData[] {
       console.error('Failed to parse line:', line, e);
     }
   }
-  return processed;
+  // Sort by timestamp just in case data comes in out of order
+  return processed.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 }
 
 export function calculateSummary(logs: LabeledTrafficData[]): SummaryStats {
@@ -99,3 +101,5 @@ export const initialData = `{"timestamp":"2025-08-08T16:56:11Z","uid":"639CA18",
 {"timestamp":"2025-08-08T17:03:05Z","uid":"639CA18","gas":2310,"count":7,"headway_ms":35000,"flag":""}
 {"timestamp":"2025-08-08T17:03:15Z","uid":"639CA18","gas":2600,"count":8,"headway_ms":10000,"flag":""}
 {"timestamp":"2025-08-08T17:03:20Z","uid":"639CA18","gas":2800,"count":9,"headway_ms":5000,"flag":""}`;
+
+    
