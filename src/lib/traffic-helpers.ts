@@ -14,7 +14,7 @@ export function processRawData(text: string): LabeledTrafficData[] {
     for (const line of lines) {
         if (line.trim() === '') continue;
 
-        // Handle cases where multiple JSON objects are on the same line
+        // Handle cases where multiple JSON objects are on the same line, separated by `}{`
         const potentialJsons = line.replace(/}\s*{/g, '}\n{').split('\n');
         
         for (const jsonStr of potentialJsons) {
@@ -101,7 +101,7 @@ export function generateForecast(data: LabeledTrafficData[] = []): ForecastDataP
 export const initialData = `{"timestamp":"2025-08-08T16:56:11Z","uid":"639CA18","gas":2042,"count":1,"headway_ms":0,"flag":""}
 {"timestamp":"2025-08-08T16:58:40Z","uid":"639CA18","gas":2437,"count":2,"headway_ms":148580,"flag":""}
 {"timestamp":"2025-08-08T16:58:49Z","uid":"639CA18","gas":2451,"count":3,"headway_ms":9455,"flag":""}
-{"timestamp":"2025-08-08T17:01:10Z","uid":"639CA18","gas":1980,"count":4,"headway_ms":141000,"flag":""}
+{"timestamp":"2025-0-08T17:01:10Z","uid":"639CA18","gas":1980,"count":4,"headway_ms":141000,"flag":""}
 {"timestamp":"2025-08-08T17:01:15Z","uid":"639CA18","gas":2550,"count":5,"headway_ms":5000,"flag":""}
 {"timestamp":"2025-08-08T17:02:30Z","uid":"639CA18","gas":2200,"count":6,"headway_ms":75000,"flag":""}
 {"timestamp":"2025-08-08T17:03:05Z","uid":"639CA18","gas":2310,"count":7,"headway_ms":35000,"flag":""}

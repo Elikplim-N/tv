@@ -32,7 +32,7 @@ export default function Dashboard() {
   const [isProcessing, startDataTransition] = useTransition();
 
   // Filter states
-  const [date, setDate] = useState<Date | undefined>(new Date());
+  const [date, setDate]_useState<Date | undefined>(new Date());
   const [time, setTime] = useState<string>('all');
 
   const { toast } = useToast();
@@ -41,11 +41,16 @@ export default function Dashboard() {
   
   // Load initial data from localStorage or use default
   useEffect(() => {
-    const savedData = localStorage.getItem(LOCAL_STORAGE_KEY);
-    const dataToProcess = savedData || initialData;
-    setRawData(dataToProcess);
-    if (!savedData) {
-      localStorage.setItem(LOCAL_STORAGE_KEY, dataToProcess);
+    try {
+      const savedData = localStorage.getItem(LOCAL_STORAGE_KEY);
+      const dataToProcess = savedData || initialData;
+      setRawData(dataToProcess);
+      if (!savedData) {
+        localStorage.setItem(LOCAL_STORAGE_KEY, dataToProcess);
+      }
+    } catch (error) {
+      console.error("Could not access localStorage:", error);
+      setRawData(initialData);
     }
   }, []);
   
@@ -60,14 +65,22 @@ export default function Dashboard() {
   }, [processedData, date, time]);
   
   const handleRawDataChange = (data: string) => {
-      setRawData(data);
+    setRawData(data);
+    try {
       localStorage.setItem(LOCAL_STORAGE_KEY, data);
+    } catch (error) {
+      console.error("Could not write to localStorage:", error);
+    }
   };
   
   const appendRawData = (newData: string) => {
     setRawData(prevData => {
         const updatedData = prevData + newData;
-        localStorage.setItem(LOCAL_STORAGE_KEY, updatedData);
+        try {
+            localStorage.setItem(LOCAL_STORAGE_KEY, updatedData);
+        } catch (error) {
+            console.error("Could not write to localStorage:", error);
+        }
         return updatedData;
     });
   }
@@ -364,7 +377,7 @@ export default function Dashboard() {
                                 ticks={[0, 1, 2]}
                                 tickFormatter={(value) => forecastSeverityMap[value]}
                             />
-                            <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
+                            <Tooltip content={<ChartTooltipContent indicator="dot" />} />
                             <Line dataKey="Predicted Congestion" type="monotone" stroke="var(--color-congestion)" strokeWidth={2} dot={true} />
                         </RechartsLineChart>
                     </ChartContainer>
