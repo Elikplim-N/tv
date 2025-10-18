@@ -1,37 +1,24 @@
 "use client";
 
 import { useState, useEffect, useTransition, useRef } from 'react';
-import { BarChart, LineChart, CarFront, Gauge, Hourglass, Bot, Activity, BrainCircuit, Usb } from 'lucide-react';
+import { LineChart, CarFront, Gauge, Hourglass, Activity, Calendar, Clock, Filter, BrainCircuit } from 'lucide-react';
 import { Bar, BarChart as RechartsBarChart, Line, LineChart as RechartsLineChart, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
+import { format } from 'date-fns';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@/components/ui/chart";
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
-
+import { DatePicker } from '@/components/ui/date-picker';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { LabeledTrafficData, SummaryStats, ForecastDataPoint, ModelParams } from '@/types';
 import { processRawData, calculateSummary, generateForecast, initialData } from '@/lib/traffic-helpers';
-import { tuneModelParamsAction, getForecastExplanationAction } from '@/lib/actions';
-
-const severityMap: { [key in LabeledTrafficData['severity']]: { label: string; color: string; chartColor: string } } = {
-  Low: { label: "Low", color: "bg-green-500", chartColor: "var(--color-low)" },
-  Moderate: { label: "Moderate", color: "bg-yellow-500", chartColor: "var(--color-moderate)" },
-  High: { label: "High", color: "bg-red-500", chartColor: "var(--color-high)" },
-};
 
 const forecastSeverityMap = ["Low", "Moderate", "High"];
-
-const confusionMatrixData = [
-  [120, 5, 1],
-  [8, 85, 12],
-  [2, 7, 55],
-];
-const matrixLabels = ["Low", "Moderate", "High"];
 
 const featureImportanceData = [
   { name: 'gas_ppm', importance: 0.78 },
@@ -43,15 +30,15 @@ const featureImportanceData = [
 export default function Dashboard() {
   const [rawData, setRawData] = useState(initialData);
   const [processedData, setProcessedData] = useState<LabeledTrafficData[]>([]);
+  const [filteredData, setFilteredData] = useState<LabeledTrafficData[]>([]);
   const [summary, setSummary] = useState<SummaryStats | null>(null);
   const [forecast, setForecast] = useState<ForecastDataPoint[]>([]);
-  const [modelParams, setModelParams] = useState<ModelParams | null>(null);
-  const [explanation, setExplanation] = useState<string | null>(null);
   const [isDeviceConnected, setIsDeviceConnected] = useState(false);
-
   const [isProcessing, startDataTransition] = useTransition();
-  const [isTuning, startTuningTransition] = useTransition();
-  const [isExplaining, startExplanationTransition] = useTransition();
+
+  // Filter states
+  const [date, setDate] = useState<Date | undefined>(new Date());
+  const [time, setTime] = useState<string>('all');
 
   const { toast } = useToast();
   const portRef = useRef<SerialPort | null>(null);
@@ -59,65 +46,54 @@ export default function Dashboard() {
 
   useEffect(() => {
     handleProcessData();
-    setForecast(generateForecast());
   }, []);
   
   useEffect(() => {
-    // Auto-process data whenever rawData changes
     if (rawData) {
         handleProcessData();
     }
   }, [rawData]);
 
+  useEffect(() => {
+    applyFilters();
+  }, [processedData, date, time]);
+  
+  const applyFilters = () => {
+    let data = processedData;
+
+    if (date) {
+        const selectedDate = format(date, 'yyyy-MM-dd');
+        data = data.filter(d => d.timestamp.startsWith(selectedDate));
+    }
+
+    if (time !== 'all') {
+        const [startHour, endHour] = time.split('-').map(Number);
+        data = data.filter(d => {
+            const hour = new Date(d.timestamp).getUTCHours();
+            return hour >= startHour && hour < endHour;
+        });
+    }
+
+    setFilteredData(data);
+    setSummary(calculateSummary(data));
+};
+
   const handleProcessData = () => {
     startDataTransition(() => {
       const pData = processRawData(rawData);
       setProcessedData(pData);
+      setFilteredData(pData); // Initially set filtered data to all processed data
       setSummary(calculateSummary(pData));
     });
   };
 
-  const handleTuneModel = () => {
-    if (!summary) {
-        toast({ title: "No data", description: "Please process some data first.", variant: "destructive" });
-        return;
+  const handleBuildModelAndForecast = () => {
+    if (filteredData.length < 10) {
+      toast({ title: "Not enough data", description: "Need at least 10 data points to build a model and forecast.", variant: "destructive" });
+      return;
     }
-    startTuningTransition(async () => {
-        setModelParams(null); // Clear previous results
-        const trainingDataSummary = `The dataset contains ${summary.totalVehicles} records with features like gas levels and vehicle headway. 
-        Severity distribution: Low: ${summary.severityCounts.Low}, Moderate: ${summary.severityCounts.Moderate}, High: ${summary.severityCounts.High}.`;
-        
-        const result = await tuneModelParamsAction({
-            trainingDataSummary,
-            modelType: "RandomForest",
-            tuningObjective: "Maximize F1 score for 'High' congestion class, while maintaining good overall accuracy."
-        });
-
-        if (result.success && result.data) {
-            setModelParams(result.data);
-        } else {
-            toast({ title: "AI Tuning Failed", description: result.error, variant: "destructive" });
-        }
-    });
-  };
-
-  const handleGetExplanation = () => {
-    if (forecast.length === 0 || !summary) {
-        toast({ title: "Missing Data", description: "Please process data and generate a forecast first.", variant: "destructive" });
-        return;
-    }
-    startExplanationTransition(async () => {
-        setExplanation(null);
-        const result = await getForecastExplanationAction({
-            forecastData: JSON.stringify(forecast),
-            historicalData: JSON.stringify(summary)
-        });
-        if (result.success && result.data) {
-            setExplanation(result.data.explanation);
-        } else {
-            toast({ title: "AI Explanation Failed", description: result.error, variant: "destructive" });
-        }
-    });
+    toast({ title: "Building Model...", description: "Generating a new 7-day forecast based on the current data." });
+    setForecast(generateForecast(filteredData));
   };
   
     const handleConnectDevice = async () => {
@@ -154,7 +130,6 @@ export default function Dashboard() {
             return;
         }
 
-
         try {
             const port = await navigator.serial.requestPort();
             portRef.current = port;
@@ -189,35 +164,26 @@ export default function Dashboard() {
         }
     };
 
-  const severityChartData = summary ? [
+    const severityChartData = summary ? [
       { name: 'Low', value: summary.severityCounts.Low, fill: 'hsl(var(--chart-1))' },
       { name: 'Moderate', value: summary.severityCounts.Moderate, fill: 'hsl(var(--chart-2))'},
       { name: 'High', value: summary.severityCounts.High, fill: 'hsl(var(--destructive))' },
   ] : [];
     
   const chartConfig = {
-      value: {
-        label: "Vehicles",
-      },
-      low: {
-        label: "Low",
-        color: "hsl(var(--chart-1))",
-      },
-      moderate: {
-        label: "Moderate",
-        color: "hsl(var(--chart-2))",
-      },
-      high: {
-        label: "High",
-        color: "hsl(var(--destructive))",
-      },
-    }
+      value: { label: "Vehicles" },
+      low: { label: "Low", color: "hsl(var(--chart-1))" },
+      moderate: { label: "Moderate", color: "hsl(var(--chart-2))" },
+      high: { label: "High", color: "hsl(var(--destructive))" },
+  };
+
+  const historicalChartConfig = {
+    gas: { label: 'Gas (ppm)', color: 'hsl(var(--chart-1))' },
+    headway: { label: 'Headway (s)', color: 'hsl(var(--chart-2))' },
+  };
 
   const forecastChartConfig = {
-    congestion: {
-      label: 'Predicted Congestion',
-      color: 'hsl(var(--chart-1))',
-    },
+    congestion: { label: 'Predicted Congestion', color: 'hsl(var(--chart-1))' },
   };
 
   return (
@@ -227,9 +193,9 @@ export default function Dashboard() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Activity className="h-5 w-5" />
-              Real-time Data Input
+              Data Input
             </CardTitle>
-            <CardDescription>Paste ESP32 JSON data below or connect to a device.</CardDescription>
+            <CardDescription>Paste sensor JSON data or connect to a device.</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             <Textarea
@@ -241,7 +207,7 @@ export default function Dashboard() {
             />
             <div className="flex flex-wrap gap-2">
                 <Button onClick={handleConnectDevice} variant={isDeviceConnected ? "destructive" : "default"}>
-                    <Usb className="mr-2 h-4 w-4" />
+                    <CarFront className="mr-2 h-4 w-4" />
                     {isDeviceConnected ? 'Disconnect Device' : 'Connect to Device'}
                 </Button>
                 <Button onClick={handleProcessData} disabled={isProcessing || isDeviceConnected}>
@@ -253,10 +219,32 @@ export default function Dashboard() {
 
         <Card className="lg:col-span-2">
             <CardHeader>
-                <CardTitle>Live Summary</CardTitle>
-                <CardDescription>Overview of the ingested traffic data.</CardDescription>
+                <CardTitle>Data Summary</CardTitle>
+                <CardDescription>Overview of traffic data for the selected period.</CardDescription>
             </CardHeader>
             <CardContent>
+                 <div className="mb-4 flex flex-wrap items-center gap-4">
+                    <div className="flex items-center gap-2">
+                        <Calendar className="h-4 w-4 text-muted-foreground" />
+                        <DatePicker date={date} setDate={setDate} />
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Clock className="h-4 w-4 text-muted-foreground" />
+                         <Select value={time} onValueChange={setTime}>
+                            <SelectTrigger className="w-[180px]">
+                                <SelectValue placeholder="Select time range" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">All Day</SelectItem>
+                                <SelectItem value="0-6">Morning (12am-6am)</SelectItem>
+                                <SelectItem value="6-12">Morning (6am-12pm)</SelectItem>
+                                <SelectItem value="12-18">Afternoon (12pm-6pm)</SelectItem>
+                                <SelectItem value="18-24">Evening (6pm-12am)</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <Button onClick={applyFilters} variant="outline"><Filter className="mr-2 h-4 w-4" /> Apply Filters</Button>
+                </div>
                 {summary ? (
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                         <div className="flex items-center gap-4 rounded-lg border p-4">
@@ -281,17 +269,14 @@ export default function Dashboard() {
                             </div>
                         </div>
                         <div className="h-[80px]">
-                            <ChartContainer config={chartConfig} className="h-full w-full">
-                                <RechartsBarChart data={severityChartData} layout="vertical" margin={{ top: 5, right: 0, left: 0, bottom: 5 }}>
+                             <ChartContainer config={chartConfig} className="h-full w-full">
+                                <RechartsBarChart layout="vertical" data={severityChartData} margin={{ top: 5, right: 0, left: 0, bottom: 5 }}>
                                     <XAxis type="number" hide />
-                                    <YAxis type="category" dataKey="name" hide />
-                                    <ChartTooltip
-                                        cursor={false}
-                                        content={<ChartTooltipContent hideLabel />}
-                                    />
-                                    <Bar dataKey="value" stackId="a" layout="vertical" radius={5} />
+                                    <YAxis dataKey="name" type="category" hide />
+                                    <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
+                                    <Bar dataKey="value" layout="vertical" stackId="a" radius={4} />
                                 </RechartsBarChart>
-                            </ChartContainer>
+                             </ChartContainer>
                         </div>
                     </div>
                 ) : <Skeleton className="h-24 w-full" />}
@@ -304,24 +289,27 @@ export default function Dashboard() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
                 <LineChart className="h-5 w-5" />
-                7-Day Congestion Forecast
+                Historical Data
             </CardTitle>
-            <CardDescription>Predicted congestion levels for the upcoming week.</CardDescription>
+            <CardDescription>Gas levels and vehicle headway over time for the selected period.</CardDescription>
           </CardHeader>
           <CardContent>
-            <ChartContainer config={forecastChartConfig} className="h-[300px] w-full">
-              <RechartsLineChart data={forecast} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+            <ChartContainer config={historicalChartConfig} className="h-[300px] w-full">
+              <RechartsLineChart data={filteredData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
                 <CartesianGrid vertical={false} />
-                <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} />
-                <YAxis
-                    tickLine={false}
-                    axisLine={false}
-                    tickMargin={8}
-                    ticks={[0, 1, 2]}
-                    tickFormatter={(value) => forecastSeverityMap[value]}
-                />
-                <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
-                <Line dataKey="Predicted Congestion" type="monotone" stroke="var(--color-congestion)" strokeWidth={2} dot={true} />
+                <XAxis 
+                    dataKey="timestamp" 
+                    tickFormatter={(ts) => format(new Date(ts), 'HH:mm')}
+                    tickLine={false} 
+                    axisLine={false} 
+                    tickMargin={8} 
+                 />
+                <YAxis yAxisId="left" stroke="var(--color-gas)" />
+                <YAxis yAxisId="right" orientation="right" stroke="var(--color-headway)" />
+                <Tooltip content={<ChartTooltipContent indicator="dot" />} />
+                <Legend />
+                <Line yAxisId="left" dataKey="gas" type="monotone" stroke="var(--color-gas)" strokeWidth={2} dot={false} name="Gas (ppm)" />
+                <Line yAxisId="right" dataKey="headway_sec" type="monotone" stroke="var(--color-headway)" strokeWidth={2} dot={false} name="Headway (s)" />
               </RechartsLineChart>
             </ChartContainer>
           </CardContent>
@@ -330,114 +318,35 @@ export default function Dashboard() {
         <Card className="lg:col-span-2">
             <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                    <Bot className="h-5 w-5" />
-                    AI-Powered Reasoning
+                    <BrainCircuit className="h-5 w-5" />
+                    Congestion Forecasting
                 </CardTitle>
-                <CardDescription>Let GenAI explain the forecast based on historical data.</CardDescription>
+                <CardDescription>Build a model and generate a 7-day forecast.</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
-                 <Button onClick={handleGetExplanation} disabled={isExplaining}>
-                    {isExplaining ? 'Analyzing...' : 'Generate AI Explanation'}
+                 <Button onClick={handleBuildModelAndForecast}>
+                    Build Model & Forecast
                  </Button>
-                <div className="prose prose-sm dark:prose-invert rounded-lg border bg-muted/50 p-4 min-h-[220px]">
-                  {isExplaining ? (
-                    <div className="space-y-2">
-                        <Skeleton className="h-4 w-full" />
-                        <Skeleton className="h-4 w-full" />
-                        <Skeleton className="h-4 w-3/4" />
-                    </div>
-                  ) : explanation ? (
-                    <p>{explanation}</p>
-                  ) : (
-                    <p className="text-muted-foreground">Click the button to generate an AI-powered explanation of the forecast trends.</p>
-                  )}
+                <div className="h-[250px]">
+                    <ChartContainer config={forecastChartConfig} className="h-full w-full">
+                         <RechartsLineChart data={forecast} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                            <CartesianGrid vertical={false} />
+                            <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} />
+                            <YAxis
+                                tickLine={false}
+                                axisLine={false}
+                                tickMargin={8}
+                                ticks={[0, 1, 2]}
+                                tickFormatter={(value) => forecastSeverityMap[value]}
+                            />
+                            <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
+                            <Line dataKey="Predicted Congestion" type="monotone" stroke="var(--color-congestion)" strokeWidth={2} dot={true} />
+                        </RechartsLineChart>
+                    </ChartContainer>
                 </div>
             </CardContent>
         </Card>
       </div>
-      
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <BrainCircuit className="h-5 w-5" />
-            Model Performance
-          </CardTitle>
-          <CardDescription>
-            Tune hyperparameters with AI and review performance metrics. The model is a RandomForest classifier.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-            <Button onClick={handleTuneModel} disabled={isTuning}>
-                {isTuning ? "Tuning..." : "Tune Hyperparameters with AI"}
-            </Button>
-          
-            {isTuning && (
-                <div className="grid gap-4 md:grid-cols-2">
-                    <Skeleton className="h-32 w-full" />
-                    <Skeleton className="h-32 w-full" />
-                </div>
-            )}
-            
-            {modelParams && (
-                <div className="grid gap-6 md:grid-cols-2">
-                    <div>
-                        <h3 className="font-semibold mb-2">Optimal Parameters</h3>
-                        <div className="rounded-lg border bg-muted/50 p-4 font-mono text-sm">
-                            <pre>{JSON.stringify(modelParams.optimalParams, null, 2)}</pre>
-                        </div>
-                    </div>
-                     <div>
-                        <h3 className="font-semibold mb-2">AI Reasoning</h3>
-                        <div className="prose prose-sm dark:prose-invert rounded-lg border bg-muted/50 p-4">
-                            <p>{modelParams.reasoning}</p>
-                        </div>
-                    </div>
-                </div>
-            )}
-            <Separator />
-            <div className="grid gap-6 md:grid-cols-2">
-                <div>
-                    <h3 className="text-lg font-semibold mb-2">Confusion Matrix</h3>
-                    <div className="rounded-lg border">
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead>Predicted →</TableHead>
-                                    {matrixLabels.map(label => <TableHead key={label} className="text-center">{label}</TableHead>)}
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {matrixLabels.map((label, rowIndex) => (
-                                    <TableRow key={label}>
-                                        <TableHead>{label}</TableHead>
-                                        {confusionMatrixData[rowIndex].map((value, colIndex) => (
-                                            <TableCell key={colIndex} className={`text-center ${rowIndex === colIndex ? 'font-bold text-foreground bg-accent/20' : ''}`}>
-                                                {value}
-                                            </TableCell>
-                                        ))}
-                                    </TableRow>
-                                ))}
-                            </TableBody>
-                        </Table>
-                    </div>
-                </div>
-                <div>
-                    <h3 className="text-lg font-semibold mb-2">Feature Importance</h3>
-                    <div className="h-[200px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <RechartsBarChart data={featureImportanceData} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                                <CartesianGrid horizontal={false} />
-                                <XAxis type="number" />
-                                <YAxis dataKey="name" type="category" width={80} />
-                                <Tooltip cursor={{ fill: 'hsl(var(--muted))' }} />
-                                <Bar dataKey="importance" fill="hsl(var(--primary))" />
-                            </RechartsBarChart>
-                        </ResponsiveContainer>
-                    </div>
-                </div>
-            </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }

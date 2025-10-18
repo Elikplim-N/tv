@@ -12,6 +12,7 @@ export function processRawData(text: string): LabeledTrafficData[] {
 
   for (const line of lines) {
     try {
+      if (line.trim() === '') continue;
       const data: TrafficData = JSON.parse(line);
       const headway_sec = data.headway_ms / 1000;
       let severity: LabeledTrafficData['severity'] = 'Low';
@@ -21,8 +22,12 @@ export function processRawData(text: string): LabeledTrafficData[] {
       } else if (headway_sec < (SEVERITY_THRESHOLDS.MODERATE.headway_ms / 1000) || data.gas > SEVERITY_THRESHOLDS.MODERATE.gas) {
         severity = 'Moderate';
       }
+      
+      // Ensure timestamp is valid before pushing
+      if (new Date(data.timestamp).toString() !== 'Invalid Date') {
+        processed.push({ ...data, headway_sec, severity });
+      }
 
-      processed.push({ ...data, headway_sec, severity });
     } catch (e) {
       console.error('Failed to parse line:', line, e);
     }
@@ -35,7 +40,7 @@ export function calculateSummary(logs: LabeledTrafficData[]): SummaryStats {
     return { totalVehicles: 0, avgGas: 0, avgHeadway: 0, severityCounts: { Low: 0, Moderate: 0, High: 0 } };
   }
 
-  const totalVehicles = logs.length > 0 ? logs[logs.length - 1].count : 0;
+  const totalVehicles = logs.length;
   const totalGas = logs.reduce((sum, log) => sum + log.gas, 0);
   const totalHeadway = logs.reduce((sum, log) => sum + log.headway_sec, 0);
   
@@ -52,13 +57,31 @@ export function calculateSummary(logs: LabeledTrafficData[]): SummaryStats {
   };
 }
 
-export function generateForecast(): ForecastDataPoint[] {
+export function generateForecast(data: LabeledTrafficData[] = []): ForecastDataPoint[] {
     const forecast: ForecastDataPoint[] = [];
     const today = new Date();
+    
+    // Base pattern
+    const basePattern = [0, 1, 2, 1, 1, 0, 0]; // Simple weekly pattern
+
+    // Adjust pattern based on recent data if available
+    if (data.length > 10) {
+        const recentSeverity = data.slice(-10).reduce((acc, d) => acc + (d.severity === 'High' ? 2 : d.severity === 'Moderate' ? 1 : 0), 0) / 10;
+        if (recentSeverity > 1.5) { // If mostly high
+            basePattern[0] = 2;
+            basePattern[1] = 2;
+        } else if (recentSeverity > 0.8) { // If mostly moderate
+            basePattern[0] = 1;
+            basePattern[1] = 2;
+        }
+    }
+
+
     for (let i = 0; i < 7; i++) {
         const date = addDays(today, i);
-        // Simple oscillating pattern for mock data
-        const congestionLevel = Math.round(1 + Math.sin(i * Math.PI / 3.5) * 1);
+        const dayOfWeek = date.getDay();
+        // Use a simple repeating pattern for mock data
+        const congestionLevel = basePattern[dayOfWeek % 7];
         forecast.push({
             date: format(date, 'MMM d'),
             'Predicted Congestion': congestionLevel,

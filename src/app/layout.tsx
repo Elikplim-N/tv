@@ -3,8 +3,8 @@ import { Toaster } from "@/components/ui/toaster"
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'TrafficVision',
-  description: 'AI-Powered Traffic Congestion Forecasting',
+  title: 'Abeka Junction Traffic Analysis',
+  description: 'Real-time traffic congestion analysis and forecasting',
 };
 
 export default function RootLayout({
