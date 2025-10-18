@@ -115,6 +115,24 @@ export default function Dashboard() {
       { name: 'Moderate', value: summary.severityCounts.Moderate, fill: 'hsl(var(--chart-2))'},
       { name: 'High', value: summary.severityCounts.High, fill: 'hsl(var(--destructive))' },
   ] : [];
+    
+  const chartConfig = {
+      value: {
+        label: "Vehicles",
+      },
+      low: {
+        label: "Low",
+        color: "hsl(var(--chart-1))",
+      },
+      moderate: {
+        label: "Moderate",
+        color: "hsl(var(--chart-2))",
+      },
+      high: {
+        label: "High",
+        color: "hsl(var(--destructive))",
+      },
+    }
 
   const forecastChartConfig = {
     congestion: {
@@ -177,14 +195,17 @@ export default function Dashboard() {
                             </div>
                         </div>
                         <div className="h-[80px]">
-                           <ResponsiveContainer width="100%" height="100%">
-                             <RechartsBarChart data={severityChartData} layout="vertical" margin={{ top: 5, right: 0, left: 0, bottom: 5 }}>
-                               <XAxis type="number" hide />
-                               <YAxis type="category" dataKey="name" hide />
-                               <Tooltip content={<ChartTooltipContent hideLabel />} />
-                               <RechartsBarChart dataKey="value" stackId="a" layout="vertical" />
-                             </RechartsBarChart>
-                           </ResponsiveContainer>
+                            <ChartContainer config={chartConfig} className="h-full w-full">
+                                <RechartsBarChart data={severityChartData} layout="vertical" margin={{ top: 5, right: 0, left: 0, bottom: 5 }}>
+                                    <XAxis type="number" hide />
+                                    <YAxis type="category" dataKey="name" hide />
+                                    <ChartTooltip
+                                        cursor={false}
+                                        content={<ChartTooltipContent hideLabel />}
+                                    />
+                                    <Bar dataKey="value" stackId="a" layout="vertical" radius={5} />
+                                </RechartsBarChart>
+                            </ChartContainer>
                         </div>
                     </div>
                 ) : <Skeleton className="h-24 w-full" />}
