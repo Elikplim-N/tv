@@ -15,7 +15,7 @@ export function processRawData(text: string): LabeledTrafficData[] {
         if (line.trim() === '') continue;
 
         // Handle cases where multiple JSON objects are on the same line
-        const potentialJsons = line.replace(/}\s*{/g, '}}\n{').split('\n');
+        const potentialJsons = line.replace(/}\s*{/g, '}\n{').split('\n');
         
         for (const jsonStr of potentialJsons) {
             if (jsonStr.trim() === '') continue;
