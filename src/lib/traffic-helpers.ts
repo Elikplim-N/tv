@@ -8,33 +8,39 @@ const SEVERITY_THRESHOLDS = {
 };
 
 export function processRawData(text: string): LabeledTrafficData[] {
-  const lines = text.trim().split('\n');
-  const processed: LabeledTrafficData[] = [];
+    const lines = text.trim().split('\n');
+    const processed: LabeledTrafficData[] = [];
 
-  for (const line of lines) {
-    try {
-      if (line.trim() === '') continue;
-      const data: TrafficData = JSON.parse(line.trim());
-      const headway_sec = data.headway_ms / 1000;
-      let severity: LabeledTrafficData['severity'] = 'Low';
+    for (const line of lines) {
+        if (line.trim() === '') continue;
 
-      if (headway_sec < (SEVERITY_THRESHOLDS.HIGH.headway_ms / 1000) && data.gas > SEVERITY_THRESHOLDS.HIGH.gas) {
-        severity = 'High';
-      } else if (headway_sec < (SEVERITY_THRESHOLDS.MODERATE.headway_ms / 1000) || data.gas > SEVERITY_THRESHOLDS.MODERATE.gas) {
-        severity = 'Moderate';
-      }
-      
-      // Ensure timestamp is valid before pushing
-      if (new Date(data.timestamp).toString() !== 'Invalid Date') {
-        processed.push({ ...data, headway_sec, severity });
-      }
+        // Handle cases where multiple JSON objects are on the same line
+        const potentialJsons = line.replace(/}\s*{/g, '}}\n{').split('\n');
+        
+        for (const jsonStr of potentialJsons) {
+            if (jsonStr.trim() === '') continue;
+            try {
+                const data: TrafficData = JSON.parse(jsonStr.trim());
+                const headway_sec = data.headway_ms / 1000;
+                let severity: LabeledTrafficData['severity'] = 'Low';
 
-    } catch (e) {
-      console.error('Failed to parse line:', line, e);
+                if (headway_sec < (SEVERITY_THRESHOLDS.HIGH.headway_ms / 1000) && data.gas > SEVERITY_THRESHOLDS.HIGH.gas) {
+                    severity = 'High';
+                } else if (headway_sec < (SEVERITY_THRESHOLDS.MODERATE.headway_ms / 1000) || data.gas > SEVERITY_THRESHOLDS.MODERATE.gas) {
+                    severity = 'Moderate';
+                }
+
+                if (new Date(data.timestamp).toString() !== 'Invalid Date') {
+                    processed.push({ ...data, headway_sec, severity });
+                }
+
+            } catch (e) {
+                console.error('Failed to parse line:', jsonStr, e);
+            }
+        }
     }
-  }
-  // Sort by timestamp just in case data comes in out of order
-  return processed.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    // Sort by timestamp just in case data comes in out of order
+    return processed.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 }
 
 export function calculateSummary(logs: LabeledTrafficData[]): SummaryStats {
