@@ -18,17 +18,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { LabeledTrafficData, SummaryStats, ForecastDataPoint, ModelParams } from '@/types';
 import { processRawData, calculateSummary, generateForecast, initialData } from '@/lib/traffic-helpers';
 
+const LOCAL_STORAGE_KEY = 'trafficData';
 const forecastSeverityMap = ["Low", "Moderate", "High"];
 
-const featureImportanceData = [
-  { name: 'gas_ppm', importance: 0.78 },
-  { name: 'headway_sec', importance: 0.65 },
-  { name: 'hour_of_day', importance: 0.42 },
-  { name: 'day_of_week', importance: 0.31 },
-];
-
 export default function Dashboard() {
-  const [rawData, setRawData] = useState(initialData);
+  const [rawData, setRawData] = useState('');
   const [processedData, setProcessedData] = useState<LabeledTrafficData[]>([]);
   const [filteredData, setFilteredData] = useState<LabeledTrafficData[]>([]);
   const [summary, setSummary] = useState<SummaryStats | null>(null);
@@ -43,9 +37,13 @@ export default function Dashboard() {
   const { toast } = useToast();
   const portRef = useRef<SerialPort | null>(null);
   const readerRef = useRef<ReadableStreamDefaultReader<string> | null>(null);
-
+  
+  // Load initial data from localStorage or use default
   useEffect(() => {
-    handleProcessData();
+    const savedData = localStorage.getItem(LOCAL_STORAGE_KEY);
+    const dataToProcess = savedData || initialData;
+    setRawData(dataToProcess);
+    localStorage.setItem(LOCAL_STORAGE_KEY, dataToProcess);
   }, []);
   
   useEffect(() => {
@@ -58,6 +56,17 @@ export default function Dashboard() {
     applyFilters();
   }, [processedData, date, time]);
   
+  const handleRawDataChange = (data: string) => {
+      setRawData(data);
+      localStorage.setItem(LOCAL_STORAGE_KEY, data);
+  };
+  
+  const appendRawData = (newData: string) => {
+      const updatedData = rawData + newData;
+      setRawData(updatedData);
+      localStorage.setItem(LOCAL_STORAGE_KEY, updatedData);
+  }
+
   const applyFilters = () => {
     let data = processedData;
 
@@ -135,7 +144,7 @@ export default function Dashboard() {
             portRef.current = port;
             await port.open({ baudRate: 115200 });
             setIsDeviceConnected(true);
-            setRawData(''); // Clear existing data on new connection
+            handleRawDataChange(''); // Clear existing data on new connection
             toast({ title: "Device Connected Successfully" });
 
             const textDecoder = new TextDecoderStream();
@@ -150,7 +159,7 @@ export default function Dashboard() {
                     break;
                 }
                 // Append new data, ensuring a newline for the processRawData function
-                setRawData(prev => prev + value);
+                appendRawData(value);
             }
 
         } catch (error) {
@@ -200,7 +209,7 @@ export default function Dashboard() {
           <CardContent className="flex flex-col gap-4">
             <Textarea
               value={rawData}
-              onChange={(e) => setRawData(e.target.value)}
+              onChange={(e) => handleRawDataChange(e.target.value)}
               placeholder={isDeviceConnected ? "Receiving live data from device..." : "Paste your JSON data here..."}
               className="h-48 min-h-48 font-mono text-xs"
               disabled={isDeviceConnected}
