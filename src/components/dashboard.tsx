@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useTransition } from 'react';
-import { BarChart, LineChart, CarFront, Gauge, Hourglass, Bot, Activity, BrainCircuit } from 'lucide-react';
+import { useState, useEffect, useTransition, useRef } from 'react';
+import { BarChart, LineChart, CarFront, Gauge, Hourglass, Bot, Activity, BrainCircuit, Usb } from 'lucide-react';
 import { Bar, BarChart as RechartsBarChart, Line, LineChart as RechartsLineChart, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -47,17 +47,27 @@ export default function Dashboard() {
   const [forecast, setForecast] = useState<ForecastDataPoint[]>([]);
   const [modelParams, setModelParams] = useState<ModelParams | null>(null);
   const [explanation, setExplanation] = useState<string | null>(null);
+  const [isDeviceConnected, setIsDeviceConnected] = useState(false);
 
   const [isProcessing, startDataTransition] = useTransition();
   const [isTuning, startTuningTransition] = useTransition();
   const [isExplaining, startExplanationTransition] = useTransition();
 
   const { toast } = useToast();
+  const portRef = useRef<SerialPort | null>(null);
+  const readerRef = useRef<ReadableStreamDefaultReader<string> | null>(null);
 
   useEffect(() => {
     handleProcessData();
     setForecast(generateForecast());
   }, []);
+  
+  useEffect(() => {
+    // Auto-process data whenever rawData changes
+    if (rawData) {
+        handleProcessData();
+    }
+  }, [rawData]);
 
   const handleProcessData = () => {
     startDataTransition(() => {
@@ -109,6 +119,75 @@ export default function Dashboard() {
         }
     });
   };
+  
+    const handleConnectDevice = async () => {
+        if (!('serial' in navigator)) {
+            toast({
+                title: "Web Serial API not supported",
+                description: "Your browser does not support the Web Serial API. Please use a compatible browser like Chrome or Edge.",
+                variant: "destructive",
+            });
+            return;
+        }
+
+        if (isDeviceConnected) {
+            // Disconnect logic
+            try {
+                if (readerRef.current) {
+                    await readerRef.current.cancel();
+                    readerRef.current.releaseLock();
+                    readerRef.current = null;
+                }
+                if (portRef.current?.writable) {
+                   await portRef.current.writable.close();
+                }
+                if (portRef.current) {
+                    await portRef.current.close();
+                    portRef.current = null;
+                }
+                setIsDeviceConnected(false);
+                toast({ title: "Device Disconnected" });
+            } catch (error) {
+                console.error("Error disconnecting:", error);
+                toast({ title: "Disconnection failed", description: (error as Error).message, variant: "destructive" });
+            }
+            return;
+        }
+
+
+        try {
+            const port = await navigator.serial.requestPort();
+            portRef.current = port;
+            await port.open({ baudRate: 115200 });
+            setIsDeviceConnected(true);
+            setRawData(''); // Clear existing data on new connection
+            toast({ title: "Device Connected Successfully" });
+
+            const textDecoder = new TextDecoderStream();
+            const readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
+            const reader = textDecoder.readable.getReader();
+            readerRef.current = reader;
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) {
+                    reader.releaseLock();
+                    break;
+                }
+                // Append new data, ensuring a newline for the processRawData function
+                setRawData(prev => prev + value);
+            }
+
+        } catch (error) {
+            if ((error as Error).name !== 'NotFoundError') {
+                toast({
+                    title: "Connection Failed",
+                    description: (error as Error).message,
+                    variant: "destructive"
+                });
+            }
+        }
+    };
 
   const severityChartData = summary ? [
       { name: 'Low', value: summary.severityCounts.Low, fill: 'hsl(var(--chart-1))' },
@@ -150,18 +229,25 @@ export default function Dashboard() {
               <Activity className="h-5 w-5" />
               Real-time Data Input
             </CardTitle>
-            <CardDescription>Paste ESP32 JSON data below. Each line is one reading.</CardDescription>
+            <CardDescription>Paste ESP32 JSON data below or connect to a device.</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             <Textarea
               value={rawData}
               onChange={(e) => setRawData(e.target.value)}
-              placeholder="Paste your JSON data here..."
+              placeholder={isDeviceConnected ? "Receiving live data from device..." : "Paste your JSON data here..."}
               className="h-48 min-h-48 font-mono text-xs"
+              disabled={isDeviceConnected}
             />
-            <Button onClick={handleProcessData} disabled={isProcessing}>
-              {isProcessing ? 'Processing...' : 'Process Data'}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+                <Button onClick={handleConnectDevice} variant={isDeviceConnected ? "destructive" : "default"}>
+                    <Usb className="mr-2 h-4 w-4" />
+                    {isDeviceConnected ? 'Disconnect Device' : 'Connect to Device'}
+                </Button>
+                <Button onClick={handleProcessData} disabled={isProcessing || isDeviceConnected}>
+                  {isProcessing ? 'Processing...' : 'Process Data'}
+                </Button>
+            </div>
           </CardContent>
         </Card>
 
